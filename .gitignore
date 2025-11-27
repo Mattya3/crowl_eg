@@ -1,0 +1,21 @@
+# AWS SAM
+.aws-sam/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Mac
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Local tests
+samconfig.toml

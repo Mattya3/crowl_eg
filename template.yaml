@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  crowl_eg
+
+  Sample SAM Template for crowl_eg
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+
+Resources:
+  SentArticlesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: SentArticles
+      AttributeDefinitions:
+        - AttributeName: url
+          AttributeType: S
+      KeySchema:
+        - AttributeName: url
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  ArticleRecommenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          SENT_ARTICLES_TABLE: !Ref SentArticlesTable
+          LINE_CHANNEL_ACCESS_TOKEN: '{{resolve:ssm:/crowl_eg/line_channel_access_token}}' # Example using SSM, or replace with env var
+          # LINE_USER_ID is not needed for broadcast
+          # QIITA_ACCESS_TOKEN removed as per user request
+          ARTICLE_COUNT: '3'
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SentArticlesTable
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: 'cron(0 22 * * ? *)' # Daily at 22:00 UTC (7:00 JST next day)
+            Name: DailyArticleSchedule
+            Description: Trigger daily article recommendation
+            Enabled: True
+
+Outputs:
+  ArticleRecommenderFunction:
+    Description: "Article Recommender Lambda Function ARN"
+    Value: !GetAtt ArticleRecommenderFunction.Arn
+  ArticleRecommenderFunctionIamRole:
+    Description: "Implicit IAM Role created for Article Recommender function"
+    Value: !GetAtt ArticleRecommenderFunctionRole.Arn
