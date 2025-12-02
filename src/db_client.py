@@ -12,7 +12,7 @@ TABLE_NAME = os.environ.get('SENT_ARTICLES_TABLE', 'SentArticles')
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(TABLE_NAME)
 
-TTL_DAYS = 30
+TTL_DAYS = 14
 
 def filter_new_articles(articles):
     """

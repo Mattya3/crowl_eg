@@ -1,3 +1,4 @@
 requests
-boto3
 feedparser
+boto3
+python-dateutil

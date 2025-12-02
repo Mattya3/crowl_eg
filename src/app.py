@@ -4,6 +4,7 @@ import logging
 import random
 import math
 import datetime
+from dateutil import parser
 from qiita_client import fetch_articles as fetch_qiita_articles
 from zenn_client import fetch_zenn_articles
 from db_client import filter_new_articles, save_sent_articles
@@ -24,18 +25,42 @@ def lambda_handler(event, context):
     
     try:
         # 1. Fetch articles from multiple sources
-        # Qiita: Recently Popular (Last 7 days, sorted by likes)
+        # Qiita: Recently Popular (Last 14 days, sorted by likes)
         # Construct query for recent articles
-        days_ago = 7
+        days_ago = 14
         target_date = (datetime.date.today() - datetime.timedelta(days=days_ago)).isoformat()
-        qiita_query = f"created:>{target_date} stocks:>10" # Filter for some popularity to ensure quality
+        qiita_query = f"created:>{target_date} stocks:>0" # Filter for some popularity to ensure quality
         
-        qiita_articles = fetch_qiita_articles(query=qiita_query, count=100) # Fetch max per page to get best candidates
+        qiita_articles = fetch_qiita_articles(query=qiita_query, count=50) # Fetch max per page to get best candidates
         for a in qiita_articles:
             a['source'] = 'Qiita'
         
         # Zenn: Trend
-        zenn_articles = fetch_zenn_articles(count=50)
+        zenn_articles_raw = fetch_zenn_articles(count=50)
+        
+        # Filter Zenn articles to be within the last 14 days
+        zenn_articles = []
+        limit_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_ago)
+        
+        for a in zenn_articles_raw:
+            # Parse created_at. Zenn RSS format is usually RFC822 or ISO. 
+            # zenn_client uses entry.published which feedparser usually parses to a struct_time or string.
+            # Let's assume zenn_client returns a string that dateutil.parser can handle, or we check zenn_client.
+            try:
+                # zenn_client returns 'created_at' as the string from feed.
+                # We need to parse it.
+                pub_date = parser.parse(a['created_at'])
+                # Ensure timezone awareness for comparison if needed, but usually parser handles it.
+                # If pub_date is naive, make it aware or compare with naive.
+                if pub_date.tzinfo is None:
+                    pub_date = pub_date.replace(tzinfo=datetime.timezone.utc)
+                
+                if pub_date >= limit_date:
+                    zenn_articles.append(a)
+            except Exception as e:
+                logger.warning(f"Failed to parse date for Zenn article {a['url']}: {e}")
+                # If date parse fails, maybe include it or exclude? Let's exclude to be safe.
+                continue
         
         all_articles = qiita_articles + zenn_articles
         logger.info(f"Fetched {len(all_articles)} articles (Qiita: {len(qiita_articles)}, Zenn: {len(zenn_articles)}).")
@@ -63,8 +88,8 @@ def lambda_handler(event, context):
         qiita_candidates = [a for a in new_articles if a['source'] == 'Qiita']
         zenn_candidates = [a for a in new_articles if a['source'] == 'Zenn']
         
-        # Sort Qiita by likes (already sorted by fetcher usually, but ensure it)
-        qiita_candidates.sort(key=lambda x: x.get('likes_count', 0), reverse=True)
+        # Sort Qiita by trend_score (already sorted by fetcher usually, but ensure it)
+        qiita_candidates.sort(key=lambda x: x.get('trend_score', 0), reverse=True)
         # Zenn is from RSS trend, so order is roughly trend rank.
         
         selected_articles = []
@@ -119,3 +144,6 @@ def lambda_handler(event, context):
             "statusCode": 500,
             "body": json.dumps({"message": "Internal Server Error"})
         }
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
